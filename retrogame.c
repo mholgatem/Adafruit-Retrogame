@@ -113,32 +113,59 @@ struct {
 	// (using HDMI or composite instead), as with our original
 	// retro gaming guide.
 	// Input   Output (from /usr/include/linux/input.h)
-	{  25,     KEY_LEFT     },   // Joystick (4 pins)
-	{   9,     KEY_RIGHT    },
-	{  10,     KEY_UP       },
-	{  17,     KEY_DOWN     },
-	{  23,     KEY_LEFTCTRL },   // A/Fire/jump/primary
-	{   7,     KEY_LEFTALT  },   // B/Bomb/secondary
-	// For credit/start/etc., use USB keyboard or add more buttons.
+	//	  Input    Output (from /usr/include/linux/input.h)
+
+	//DIRECTION - PLAYER 1
+	{  2,	KEY_LEFT			},	// 00 //P1 - Left			276
+	{  3,	KEY_RIGHT			},	// 01 //P1 - Right			275
+	{  4,	KEY_UP				},	// 02 //P1 - Up			274
+	{ 17,	KEY_DOWN			},	// 03 //P1 - Down		273
+	
+	//BUTTONS - PLAYER 1
+	{ 27,	KEY_ENTER			},	// 04 //P1 - Button1		13
+	{ 22,	KEY_SPACE			},	// 05 //P1 - Button2		32
+	{ 10,	KEY_H				},	// 06 //P1 - Button3		9
+	{  9,	KEY_J				},	// 07 //P1 - Button4		303
+	
+	//DIRECTION - PLAYER 2
+	{ 11,	KEY_A				},	// 08 //P2 - Left			97
+	{ 18,	KEY_D				},	// 09 //P2 - Right			100
+	{ 23,	KEY_W				},	// 10 //P2 - Up			120
+	{ 24,	KEY_S				},	// 11 //P2 - Down		115
+	
+	//BUTTONS - PLAYER 2
+	{ 25,	KEY_E				},	// 12 //P2 - Button1		105
+	{  8,	KEY_X				},	// 13 //P2 - Button2		116
+	{  7,	KEY_I				},	// 14 //P2 - Button3		121
+	{ 29,	KEY_T				},	// 15 //P2 - Button4		117
+	
+	//EXTRA BUTTONS
+	{ 30,	KEY_1				},	// 16 //Start 1				49
+	{ 31,	KEY_2				},	// 17 //Start 2				50
+
 	{  -1,     -1           } }; // END OF LIST, DO NOT CHANGE
 
-// A "Vulcan nerve pinch" (holding down a specific button combination
-// for a few seconds) issues an 'esc' keypress to MAME (which brings up
-// an exit menu or quits the current game).  The button combo is
-// configured with a bitmask corresponding to elements in the above io[]
-// array.  The default value here uses elements 6 and 7 (credit and start
-// in the Cupcade pinout).  If you change this, make certain it's a combo
-// that's not likely to occur during actual gameplay (i.e. avoid using
-// joystick directions or hold-for-rapid-fire buttons).
-// Also key auto-repeat times are set here.  This is for navigating the
-// game menu using the 'gamera' utility; MAME disregards key repeat
-// events (as it should).
-const unsigned long vulcanMask = (1L << 6) | (1L << 7);
-const int           vulcanKey  = KEY_ESC, // Keycode to send
-                    vulcanTime = 1500,    // Pinch time in milliseconds
-                    repTime1   = 500,     // Key hold time to begin repeat
-                    repTime2   = 100;     // Time between key repetitions
 
+
+const int        vulcanTime = 0,    // Pinch time in milliseconds
+                    repTime1   = 500,     // Key hold time to begin repeat
+                    repTime2   = 100;     // Time between key repetitionsconst unsigned long vulcanMask = (1L << 6) | (1L << 7);const unsigned long vulcanMask = (1L << 6) | (1L << 7);const unsigned long vulcanMask = (1L << 16) | (1L << 17);
+					
+const unsigned long vulcanMask = (1L << 16) | (1L << 17);
+const unsigned long comboMask1 = (1L << 4) | (1L << 6);
+const unsigned long comboMask2 = (1L << 5) | (1L << 7);
+const unsigned long comboMask3 = (1L << 12) | (1L << 14);
+const unsigned long comboMask4 = (1L << 13) | (1L << 15);
+const unsigned long comboMask5 = (1L << 4) | (1L << 16);
+const unsigned long comboMask6 = (1L << 12) | (1L << 17);
+
+const int           vulcanKey  = KEY_ESC; // Keycode to send
+const int           comboKey1  = KEY_K; // Keycode to send
+const int           comboKey2  = KEY_L; // Keycode to send
+const int           comboKey3  = KEY_M; // Keycode to send
+const int           comboKey4  = KEY_N; // Keycode to send
+const int           comboKey5  = KEY_O; // Keycode to send
+const int           comboKey6  = KEY_P; // Keycode to send
 
 // A few globals ---------------------------------------------------------
 
@@ -251,11 +278,14 @@ int main(int argc, char *argv[]) {
 	                       timeout = -1, // poll() timeout
 	                       intstate[32], // Last-read state
 	                       extstate[32], // Debounced state
+						   comboPressed = 0, // set if combo pressed
 	                       lastKey = -1; // Last key down (for repeat)
-	unsigned long          bitMask, bit; // For Vulcan pinch detect
+	unsigned long          bitMask = 0L, bit = 1L; // For Vulcan pinch detect
 	volatile unsigned char shortWait;    // Delay counter
 	struct input_event     keyEv, synEv; // uinput events
 	struct pollfd          p[32];        // GPIO file descriptors
+	
+	
 
 	progName = argv[0];             // For error reporting
 	signal(SIGINT , signalHandler); // Trap basic signals (exit cleanly)
@@ -369,7 +399,16 @@ int main(int argc, char *argv[]) {
 				err("Can't SET_KEYBIT");
 		}
 	}
+	
+	//SET KEYBIT FOR COMBO-KEYS
 	if(ioctl(fd, UI_SET_KEYBIT, vulcanKey) < 0) err("Can't SET_KEYBIT");
+	if(ioctl(fd, UI_SET_KEYBIT, comboKey1) < 0) err("Can't SET_KEYBIT");
+	if(ioctl(fd, UI_SET_KEYBIT, comboKey2) < 0) err("Can't SET_KEYBIT");
+	if(ioctl(fd, UI_SET_KEYBIT, comboKey3) < 0) err("Can't SET_KEYBIT");
+	if(ioctl(fd, UI_SET_KEYBIT, comboKey4) < 0) err("Can't SET_KEYBIT");
+	if(ioctl(fd, UI_SET_KEYBIT, comboKey5) < 0) err("Can't SET_KEYBIT");
+	if(ioctl(fd, UI_SET_KEYBIT, comboKey6) < 0) err("Can't SET_KEYBIT");
+	
 	struct uinput_user_dev uidev;
 	memset(&uidev, 0, sizeof(uidev));
 	snprintf(uidev.name, UINPUT_MAX_NAME_SIZE, "retrogame");
@@ -427,7 +466,22 @@ int main(int argc, char *argv[]) {
 			// remapping table or a duplicate key[] list.
 			bitMask = 0L; // Mask of buttons currently pressed
 			bit     = 1L;
+			
 			for(c=i=j=0; io[i].pin >= 0; i++, bit<<=1) {
+					if(intstate[i]) bitMask |= bit;
+			}
+			
+			comboPressed = 0;
+			if(((bitMask & vulcanMask) == vulcanMask) ||
+							((bitMask & comboMask1) == comboMask1) ||
+							((bitMask & comboMask2) == comboMask2) ||
+							((bitMask & comboMask3) == comboMask3) ||
+							((bitMask & comboMask4) == comboMask4) ||
+							((bitMask & comboMask5) == comboMask5) ||
+							((bitMask & comboMask6) == comboMask6))
+																		comboPressed = 1;
+			
+			for(c=i=j=0; io[i].pin >= 0; i++) {
 				if(io[i].key != GND) {
 					// Compare internal state against
 					// previously-issued value.  Send
@@ -436,8 +490,9 @@ int main(int argc, char *argv[]) {
 						extstate[j] = intstate[j];
 						keyEv.code  = io[i].key;
 						keyEv.value = intstate[j];
-						write(fd, &keyEv,
-						  sizeof(keyEv));
+						if(!(comboPressed))
+								write(fd, &keyEv,
+								  sizeof(keyEv));
 						c = 1; // Follow w/SYN event
 						if(intstate[j]) { // Press?
 							// Note pressed key
@@ -454,18 +509,26 @@ int main(int argc, char *argv[]) {
 						}
 					}
 					j++;
-					if(intstate[i]) bitMask |= bit;
+					
 				}
 			}
 
 			// If the "Vulcan nerve pinch" buttons are pressed,
 			// set long timeout -- if this time elapses without
 			// a button state change, esc keypress will be sent.
-			if((bitMask & vulcanMask) == vulcanMask)
-				timeout = vulcanTime;
-		} else if(timeout == vulcanTime) { // Vulcan timeout occurred
+			if(comboPressed) timeout = vulcanTime;
+			
+			
+		} else if(comboPressed) { // Vulcan timeout occurred
 			// Send keycode (MAME exits or displays exit menu)
-			keyEv.code = vulcanKey;
+			if((bitMask & vulcanMask) == vulcanMask) keyEv.code = vulcanKey;
+			if((bitMask & comboMask1) == comboMask1) keyEv.code = comboKey1;
+			if((bitMask & comboMask2) == comboMask2) keyEv.code = comboKey2;
+			if((bitMask & comboMask3) == comboMask3) keyEv.code = comboKey3;
+			if((bitMask & comboMask4) == comboMask4) keyEv.code = comboKey4;
+			if((bitMask & comboMask5) == comboMask5) keyEv.code = comboKey5;
+			if((bitMask & comboMask6) == comboMask6) keyEv.code = comboKey6;
+			
 			for(i=1; i>= 0; i--) { // Press, release
 				keyEv.value = i;
 				write(fd, &keyEv, sizeof(keyEv));
