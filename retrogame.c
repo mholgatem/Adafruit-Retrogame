@@ -123,9 +123,9 @@ struct {
 	
 	//BUTTONS - PLAYER 1
 	{ 27,	KEY_ENTER			},	// 04 //P1 - Button1		13
-	{ 22,	KEY_SPACE			},	// 05 //P1 - Button2		32
+	{ 22,	KEY_U				},	// 05 //P1 - Button2		32
 	{ 10,	KEY_H				},	// 06 //P1 - Button3		9
-	{  9,	KEY_J				},	// 07 //P1 - Button4		303
+	{  9,	KEY_B				},	// 07 //P1 - Button4		303
 	
 	//DIRECTION - PLAYER 2
 	{ 11,	KEY_A				},	// 08 //P2 - Left			97
@@ -140,14 +140,14 @@ struct {
 	{ 29,	KEY_T				},	// 15 //P2 - Button4		117
 	
 	//EXTRA BUTTONS
-	{ 30,	KEY_1				},	// 16 //Start 1				49
-	{ 31,	KEY_2				},	// 17 //Start 2				50
+	{ 30,	KEY_N				},	// 16 //Start 1				49
+	{ 31,	KEY_J				},	// 17 //Start 2				50
 
 	{  -1,     -1           } }; // END OF LIST, DO NOT CHANGE
 
 
 
-const int        vulcanTime = 0,    // Pinch time in milliseconds
+const int        vulcanTime = 5,    	// combo repeat speed
                     repTime1   = 500,     // Key hold time to begin repeat
                     repTime2   = 100;     // Time between key repetitionsconst unsigned long vulcanMask = (1L << 6) | (1L << 7);const unsigned long vulcanMask = (1L << 6) | (1L << 7);const unsigned long vulcanMask = (1L << 16) | (1L << 17);
 					
@@ -276,11 +276,11 @@ int main(int argc, char *argv[]) {
 	                       i, j,         // Asst. counter
 	                       bitmask,      // Pullup enable bitmask
 	                       timeout = -1, // poll() timeout
+						   vulcanrepTime = -1,
 	                       intstate[32], // Last-read state
 	                       extstate[32], // Debounced state
-						   comboPressed = 0, // set if combo pressed
 	                       lastKey = -1; // Last key down (for repeat)
-	unsigned long          bitMask = 0L, bit = 1L; // For Vulcan pinch detect
+	unsigned long          bitMask = 0L, bit = 1L, comboPressed = 0L; // For Vulcan pinch || combo detect
 	volatile unsigned char shortWait;    // Delay counter
 	struct input_event     keyEv, synEv; // uinput events
 	struct pollfd          p[32];        // GPIO file descriptors
@@ -471,41 +471,46 @@ int main(int argc, char *argv[]) {
 					if(intstate[i]) bitMask |= bit;
 			}
 			
-			comboPressed = 0;
-			if(((bitMask & vulcanMask) == vulcanMask) ||
-							((bitMask & comboMask1) == comboMask1) ||
-							((bitMask & comboMask2) == comboMask2) ||
-							((bitMask & comboMask3) == comboMask3) ||
-							((bitMask & comboMask4) == comboMask4) ||
-							((bitMask & comboMask5) == comboMask5) ||
-							((bitMask & comboMask6) == comboMask6))
-																		comboPressed = 1;
+			comboPressed = 0L;
+			if((bitMask & vulcanMask) == vulcanMask) comboPressed |= vulcanMask;
+			if((bitMask & comboMask1) == comboMask1) comboPressed |= comboMask1;
+			if((bitMask & comboMask2) == comboMask2) comboPressed |= comboMask2;
+			if((bitMask & comboMask3) == comboMask3) comboPressed |= comboMask3;
+			if((bitMask & comboMask4) == comboMask4) comboPressed |= comboMask4;
+			if((bitMask & comboMask5) == comboMask5) comboPressed |= comboMask5;
+			if((bitMask & comboMask6) == comboMask6) comboPressed |= comboMask6;
 			
-			for(c=i=j=0; io[i].pin >= 0; i++) {
+			vulcanrepTime -= 1;
+
+			bit = 1L;
+			for(c=i=j=0; io[i].pin >= 0; i++, bit<<=1) {
 				if(io[i].key != GND) {
 					// Compare internal state against
 					// previously-issued value.  Send
 					// keystrokes only for changed states.
 					if(intstate[j] != extstate[j]) {
-						extstate[j] = intstate[j];
-						keyEv.code  = io[i].key;
-						keyEv.value = intstate[j];
-						if(!(comboPressed))
-								write(fd, &keyEv,
-								  sizeof(keyEv));
-						c = 1; // Follow w/SYN event
-						if(intstate[j]) { // Press?
-							// Note pressed key
-							// and set initial
-							// repeat interval.
-							lastKey = i;
-							timeout = repTime1;
-						} else { // Release?
-							// Stop repeat and
-							// return to normal
-							// IRQ monitoring
-							// (no timeout).
-							lastKey = timeout = -1;
+						//check if key is part of any currently pressed combo
+						if(((bitMask & comboPressed) & bit) == 0L) {
+							extstate[j] = intstate[j];
+							keyEv.code  = io[i].key;
+							keyEv.value = intstate[j];
+							write(fd, &keyEv, sizeof(keyEv));
+							c = 1; // Follow w/SYN event
+							
+							if(intstate[j]) { // Press?
+								// Note pressed key
+								// and set initial
+								// repeat interval.
+								lastKey = i;
+								timeout = repTime1;
+							} else { // Release?
+								// Stop repeat and
+								// return to normal
+								// IRQ monitoring
+								// (no timeout).
+								lastKey = timeout = -1;
+							}
+							
 						}
 					}
 					j++;
@@ -516,28 +521,29 @@ int main(int argc, char *argv[]) {
 			// If the "Vulcan nerve pinch" buttons are pressed,
 			// set long timeout -- if this time elapses without
 			// a button state change, esc keypress will be sent.
-			if(comboPressed) timeout = vulcanTime;
+			if(comboPressed != 0L){
+				if (vulcanrepTime <= 0){
+					vulcanrepTime = vulcanTime;
+						// Send keycode (MAME exits or displays exit menu)
+					if((bitMask & vulcanMask) == vulcanMask) keyEv.code = vulcanKey;
+					if((bitMask & comboMask1) == comboMask1) keyEv.code = comboKey1;
+					if((bitMask & comboMask2) == comboMask2) keyEv.code = comboKey2;
+					if((bitMask & comboMask3) == comboMask3) keyEv.code = comboKey3;
+					if((bitMask & comboMask4) == comboMask4) keyEv.code = comboKey4;
+					if((bitMask & comboMask5) == comboMask5) keyEv.code = comboKey5;
+					if((bitMask & comboMask6) == comboMask6) keyEv.code = comboKey6;
+					
+					for(i=1; i>= 0; i--) { // Press, release
+						keyEv.value = i;
+						write(fd, &keyEv, sizeof(keyEv));
+						usleep(10000); // Be slow, else MAME flakes
+						write(fd, &synEv, sizeof(synEv));
+						usleep(10000);
+					}
+				}
+			} else { vulcanrepTime = -1; }
 			
 			
-		} else if(comboPressed) { // Vulcan timeout occurred
-			// Send keycode (MAME exits or displays exit menu)
-			if((bitMask & vulcanMask) == vulcanMask) keyEv.code = vulcanKey;
-			if((bitMask & comboMask1) == comboMask1) keyEv.code = comboKey1;
-			if((bitMask & comboMask2) == comboMask2) keyEv.code = comboKey2;
-			if((bitMask & comboMask3) == comboMask3) keyEv.code = comboKey3;
-			if((bitMask & comboMask4) == comboMask4) keyEv.code = comboKey4;
-			if((bitMask & comboMask5) == comboMask5) keyEv.code = comboKey5;
-			if((bitMask & comboMask6) == comboMask6) keyEv.code = comboKey6;
-			
-			for(i=1; i>= 0; i--) { // Press, release
-				keyEv.value = i;
-				write(fd, &keyEv, sizeof(keyEv));
-				usleep(10000); // Be slow, else MAME flakes
-				write(fd, &synEv, sizeof(synEv));
-				usleep(10000);
-			}
-			timeout = -1; // Return to normal processing
-			c       = 0;  // No add'l SYN required
 		} else if(lastKey >= 0) { // Else key repeat timeout
 			if(timeout == repTime1) timeout = repTime2;
 			else if(timeout > 30)   timeout -= 5; // Accelerate
